@@ -1,18 +1,21 @@
+"""
+Tools for Apple log metadata
+"""
 import argparse
 import os
 import subprocess
 import threading
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
+from concurrent.futures import as_completed, ThreadPoolExecutor
 
 # 创建一个锁对象用于线程安全的更新进度计数
 progress_lock = threading.Lock()
-total_tasks = 0
-completed_tasks = 0
+TOTAL_TASKS = 0
+COMPLETED_TASKS = 0
 
 
 def process_video(args):
-    global completed_tasks
+    global COMPLETED_TASKS
     original_video_path, rendered_video_path, output_video_path = args
     start_time = time.time()
     # 执行 ffmpeg 命令
@@ -27,7 +30,7 @@ def process_video(args):
         "-loglevel", "warning",
         output_video_path
     ]
-    subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL)
+    subprocess.run(ffmpeg_cmd, stdout=subprocess.DEVNULL, check=True)
 
     # 执行 exiftool 命令来更新元数据
     exiftool_cmd = [
@@ -42,19 +45,23 @@ def process_video(args):
         "-ICC_Profile",
         output_video_path
     ]
-    subprocess.run(exiftool_cmd, stdout=subprocess.DEVNULL)
+    subprocess.run(exiftool_cmd, stdout=subprocess.DEVNULL, check=True)
     end_time = time.time()
     elapsed_time = end_time - start_time
     # 更新进度和打印信息
     with progress_lock:
-        completed_tasks += 1
+        COMPLETED_TASKS += 1
         print(
-            f"Processed {os.path.basename(output_video_path)} | Time: {elapsed_time:.2f} sec | Progress: {completed_tasks}/{total_tasks} Remaining: {total_tasks - completed_tasks}")
+            f"Processed {os.path.basename(output_video_path)} |"
+            f" Time: {elapsed_time:.2f} sec |"
+            f" Progress: {COMPLETED_TASKS}/{TOTAL_TASKS} |"
+            f" Remaining: {TOTAL_TASKS - COMPLETED_TASKS}")
 
 
 def main():
-    global total_tasks
-    parser = argparse.ArgumentParser(description="Concurrently process videos using ffmpeg and exiftool.")
+    global TOTAL_TASKS
+    parser = argparse.ArgumentParser(
+        description="Concurrently process videos using ffmpeg and exiftool.")
     parser.add_argument("-o", "--path_orig", help="Path to the original ProRes video files.")
     parser.add_argument("-r", "--path_rendered", help="Path to the rendered video files.")
     parser.add_argument("-p", "--path_output", help="Output path for the final video files.")
@@ -84,7 +91,7 @@ def main():
                 output_video_path = os.path.join(args.path_output, original_video)
                 tasks.append((original_video_path, rendered_video_path, output_video_path))
 
-    total_tasks = len(tasks)
+    TOTAL_TASKS = len(tasks)
 
     # 使用 ThreadPoolExecutor 并发处理视频
     # 在执行ExifTool处理远程服务器上视频的时候不知道为什么奇慢无比，也没有看到CPU和网络大量占用，所以用多线程能快不少（吃满带宽和U）
